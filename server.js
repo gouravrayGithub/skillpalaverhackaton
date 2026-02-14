@@ -1,119 +1,71 @@
-// 🔥 Define backend base URL once
-const BASE_URL = "http://35.207.221.229:3000";  // ← replace with your static IP
+const express = require("express");
+const cors = require("cors");
+const admin = require("firebase-admin");
 
-let gameSeq = [];
-let userSeq = [];
-let btns = ['yellow','red','purple','green'];
+const app = express();
 
-let started = false;
-let level = 0;
+// ✅ Proper CORS configuration
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}));
 
-let h2 = document.querySelector("h2");
+app.use(express.json());
 
-// Load scores when page loads
-document.addEventListener("DOMContentLoaded", loadScores);
-
-document.addEventListener("keypress", function(){
-    if(started == false){
-        started = true;
-        levelup();
-    }
+// ✅ Initialize Firebase Admin using VM credentials
+admin.initializeApp({
+  credential: admin.credential.applicationDefault(),
 });
 
-function gameFlash(btn){
-    btn.classList.add("gameflash");
-    setTimeout(function(){
-        btn.classList.remove("gameflash");
-    },250);
-}
+// ✅ Connect to specific Firestore database
+const db = admin.firestore();
+db.settings({ databaseId: "skill" });
 
-function userFlash(btn){
-    btn.classList.add("userflash");
-    setTimeout(function(){
-        btn.classList.remove("userflash");
-    },250);
-}
+// 🔹 Health check endpoint (important for future auto-healing)
+app.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
 
-function levelup(){
-    level++;
-    userSeq = [];
-    h2.innerText = `Level ${level}`;
+// 🔹 Save score
+app.post("/save-score", async (req, res) => {
+  try {
+    const { score } = req.body;
 
-    let randIndx = Math.floor(Math.random() * 4);
-    let randClr = btns[randIndx];
-    let randbtn = document.querySelector(`.${randClr}`);
-
-    gameSeq.push(randClr);
-    gameFlash(randbtn);
-}
-
-function checkAns(idx){
-    if(userSeq[idx] === gameSeq[idx]){
-        if(userSeq.length === gameSeq.length){
-            setTimeout(levelup, 1000);
-        }
-    } else {
-        h2.innerHTML = `GAME OVER! <b>Score: ${level}</b><br> press any key to start`;
-        document.querySelector("body").style.backgroundColor = "red";
-        
-        setTimeout(function(){
-            document.querySelector("body").style.backgroundColor = "rgb(233, 223, 211)";
-        },500);
-
-        // Save score to backend
-        fetch(`${BASE_URL}/save-score`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ score: level })
-        })
-        .then(() => loadScores())
-        .catch(err => console.error("Error saving score:", err));
-
-        reset();
+    if (typeof score !== "number") {
+      return res.status(400).json({ error: "Score must be a number" });
     }
-}
 
-function btnPress(){
-    if(!started) return;
+    await db.collection("scores").add({
+      score: score,
+      createdAt: new Date()
+    });
 
-    let btn = this;
-    let userClr = this.getAttribute('id');
+    res.json({ message: "Score saved!" });
+  } catch (error) {
+    console.error("Save score error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    userSeq.push(userClr);
-    userFlash(btn);
-    checkAns(userSeq.length - 1);
-}
+// 🔹 Get top scores
+app.get("/scores", async (req, res) => {
+  try {
+    const snapshot = await db
+      .collection("scores")
+      .orderBy("score", "desc")
+      .limit(10)
+      .get();
 
-let allbtn = document.querySelectorAll('.btn');
-for(let btn of allbtn){
-    btn.addEventListener("click", btnPress);
-}
+    const scores = snapshot.docs.map(doc => doc.data());
+    res.json(scores);
+  } catch (error) {
+    console.error("Fetch scores error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-function reset(){
-    level = 0;
-    gameSeq = [];
-    userSeq = [];
-    started = false;
-}
-
-// Fetch leaderboard
-async function loadScores(){
-    try {
-        const res = await fetch(`${BASE_URL}/scores`);
-        const data = await res.json();
-
-        let ul = document.querySelector("ul");
-        ul.innerHTML = "";
-
-        data.forEach((item, index) => {
-            let li = document.createElement("li");
-            li.innerText = `Rank ${index + 1}: ${item.score}`;
-            ul.appendChild(li);
-        });
-
-    } catch (err) {
-        console.error("Error loading scores:", err);
-    }
-}
+// ✅ VERY IMPORTANT: Listen on 0.0.0.0 for external access
+app.listen(3000, "0.0.0.0", () => {
+  console.log("Server running on port 3000");
+});
