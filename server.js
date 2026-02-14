@@ -4,7 +4,11 @@ const admin = require("firebase-admin");
 
 const app = express();
 
-// ✅ Proper CORS configuration
+/* ================================
+   Middleware
+================================ */
+
+// Enable CORS
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
@@ -13,21 +17,33 @@ app.use(cors({
 
 app.use(express.json());
 
-// ✅ Initialize Firebase Admin using VM credentials
+/* ================================
+   Firebase Admin Initialization
+================================ */
+
+// Uses VM service account automatically (no key file needed)
 admin.initializeApp({
   credential: admin.credential.applicationDefault(),
 });
 
-// ✅ Connect to specific Firestore database
 const db = admin.firestore();
 db.settings({ databaseId: "skill" });
 
-// 🔹 Health check endpoint (important for future auto-healing)
+/* ================================
+   Routes
+================================ */
+
+// Health check (VERY IMPORTANT for Load Balancer)
 app.get("/health", (req, res) => {
   res.status(200).send("OK");
 });
 
-// 🔹 Save score
+// Root route (optional but useful)
+app.get("/", (req, res) => {
+  res.json({ message: "Skill Palaver Backend Running 🚀" });
+});
+
+// Save score
 app.post("/save-score", async (req, res) => {
   try {
     const { score } = req.body;
@@ -41,14 +57,15 @@ app.post("/save-score", async (req, res) => {
       createdAt: new Date()
     });
 
-    res.json({ message: "Score saved!" });
+    res.json({ message: "Score saved successfully!" });
+
   } catch (error) {
     console.error("Save score error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// 🔹 Get top scores
+// Get top scores
 app.get("/scores", async (req, res) => {
   try {
     const snapshot = await db
@@ -59,13 +76,20 @@ app.get("/scores", async (req, res) => {
 
     const scores = snapshot.docs.map(doc => doc.data());
     res.json(scores);
+
   } catch (error) {
     console.error("Fetch scores error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ✅ VERY IMPORTANT: Listen on 0.0.0.0 for external access
-app.listen(3000, "0.0.0.0", () => {
-  console.log("Server running on port 3000");
+/* ================================
+   Server Start
+================================ */
+
+// IMPORTANT: Dynamic port for cloud
+const PORT = process.env.PORT || 80;
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
